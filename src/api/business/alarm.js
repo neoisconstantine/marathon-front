@@ -14,3 +14,26 @@ export function getAlarm(id) {
     method: 'get'
   })
 }
+
+export function addAlarm(data) {
+  return request({
+    url: '/business/alarm',
+    method: 'post',
+    data: data
+  })
+}
+
+export function updateAlarm(data) {
+  return request({
+    url: '/business/alarm',
+    method: 'put',
+    data: data
+  })
+}
+
+export function delAlarm(id) {
+  return request({
+    url: '/business/alarm/' + id,
+    method: 'delete'
+  })
+}

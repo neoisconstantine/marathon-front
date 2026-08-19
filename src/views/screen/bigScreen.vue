@@ -166,6 +166,7 @@ const alarms = ref([])
 
 let tick = 0
 let pollTimer = null
+let heatTimer = null
 let clockTimer = null
 
 /* ==================== 后端真实数据（赛事/参赛人数） ==================== */
@@ -221,8 +222,15 @@ async function loadAll() {
   }
   paceStats.value = derivePaceStats(tick)
   leaderboard.value = deriveLeaderboard(tick)
+  alarms.value = deriveAlarms(tick)
+  renderCharts()
+}
+
+/** 热力图数据加载：真实数据（camera 表点位 GPS + pass_record 到达人数），无人经过的点位 count=0 无热力。
+ *  独立于 loadAll 轮询，按 60 秒/次刷新，保证摄像头节点颜色深浅随当前人数变化。 */
+async function loadHeatmap() {
+  const ev = currentEvent.value
   try {
-    // 热力图：真实数据（camera 表点位 GPS + pass_record 到达人数），无人经过的点位 count=0 无热力
     const data = await getHeatmap(ev.eventId)
     heatmap.value = {
       route: data.route && data.route.length ? data.route : COURSE_ROUTE,
@@ -233,8 +241,8 @@ async function loadAll() {
     // 接口异常时回退模拟数据，保证大屏可用
     heatmap.value = deriveHeatmap(tick, windowType.value)
   }
-  alarms.value = deriveAlarms(tick)
-  renderCharts()
+  // 数据更新后重建热力图层（赛道线/热力晕圈/摄像头节点）
+  renderHeatmap(heatmap.value)
 }
 
 /* ==================== 地图（Leaflet + 高德瓦片） ==================== */
@@ -295,11 +303,30 @@ function initHeatmapMap() {
     maxZoom: 18,
     zoomSnap: 0.5
   })
+  // 默认视图定位到赛道区域（芒市），真实热力数据到达后 renderHeatmap 会 fitBounds 精确校准
+  heatmapMap.setView([24.43, 98.59], 12)
   // 高德路网瓦片（style=8 透明底，契合深色大屏；style=7 为完整地图可切换）
   L.tileLayer(
     'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
     { subdomains: ['1', '2', '3', '4'], maxZoom: 18, attribution: '高德地图' }
   ).addTo(heatmapMap)
+}
+
+/** 摄像头节点颜色：按 heat(0~1) 在 绿→黄→红 之间线性渐变；无人员经过(count=0)显示蓝色 */
+function heatColor(heat) {
+  const stops = [
+    [0.0, [16, 226, 139]],   // #10e28b 绿（人数少）
+    [0.5, [255, 210, 31]],   // #ffd21f 黄
+    [1.0, [255, 77, 79]]     // #ff4d4f 红（人数多）
+  ]
+  const h = Math.max(0, Math.min(1, heat || 0))
+  let a = stops[0], b = stops[stops.length - 1]
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (h >= stops[i][0] && h <= stops[i + 1][0]) { a = stops[i]; b = stops[i + 1]; break }
+  }
+  const t = b[0] === a[0] ? 0 : (h - a[0]) / (b[0] - a[0])
+  const rgb = a[1].map((v, i) => Math.round(v + (b[1][i] - v) * t))
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`
 }
 
 /** 渲染赛道线 + 热力 + 点位到 Leaflet（每次数据更新重建图层） */
@@ -342,14 +369,16 @@ function renderHeatmap(data) {
     }).addTo(heatmapMap)
   }
 
-  // 摄像头点位（circleMarker + 悬浮提示）
+  // 摄像头点位（circleMarker + 悬浮提示）——颜色深浅按当前节点人数(heat)渐变
   pointLayer = L.layerGroup(all.map(p => {
+    const active = (p.count || 0) > 0
+    const color = active ? heatColor(p.heat) : '#35c4ff'
     const m = L.circleMarker([p.lat, p.lng], {
-      radius: (p.count || 0) > 0 ? 4 + (p.heat || 0) * 10 : 4,
-      color: (p.count || 0) > 0 ? '#ffd21f' : '#35c4ff',
-      fillColor: (p.count || 0) > 0 ? '#ffd21f' : '#35c4ff',
-      fillOpacity: 0.85,
-      weight: 1.5
+      radius: active ? 4 + (p.heat || 0) * 10 : 4,
+      color: '#ffffff',
+      weight: 1.5,
+      fillColor: color,
+      fillOpacity: active ? 0.55 + (p.heat || 0) * 0.45 : 0.85
     })
     m.bindTooltip(buildPointTooltip(p), {
       direction: 'top',
@@ -359,8 +388,9 @@ function renderHeatmap(data) {
     return m
   })).addTo(heatmapMap)
 
-  // 首次渲染时 fitBounds 到赛道范围（之后保留用户手动缩放/拖拽状态）
-  if (route.length > 1 && !mapFitted) {
+  // 首次真实数据到达时 fitBounds 到赛道范围（之后保留用户手动缩放/拖拽状态）
+  // data.updatedAt 非空表示来自 loadHeatmap 的真实/回退数据，初始 mock 渲染不触发定位
+  if (route.length > 1 && !mapFitted && data.updatedAt) {
     heatmapMap.fitBounds(L.latLngBounds(route), { padding: [40, 40], maxZoom: 15 })
     mapFitted = true
   }
@@ -587,11 +617,15 @@ onMounted(async () => {
   await loadRunningEvents()
   loadAll()
   pollTimer = setInterval(loadAll, 5000)
+  // 热力图独立刷新：摄像头节点颜色深浅按当前人数，每分钟更新一次
+  loadHeatmap()
+  heatTimer = setInterval(loadHeatmap, 60000)
   window.addEventListener('resize', onResize)
 })
 
 onUnmounted(() => {
   clearInterval(pollTimer)
+  clearInterval(heatTimer)
   clearInterval(clockTimer)
   window.removeEventListener('resize', onResize)
   heatmapMap && heatmapMap.remove()
