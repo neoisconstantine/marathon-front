@@ -22,6 +22,12 @@
 
         <screenfull id="screenfull" class="right-menu-item hover-effect" />
 
+        <el-tooltip content="进入监控大屏" effect="dark" placement="bottom">
+          <div id="bigscreen-entry" class="right-menu-item hover-effect bigscreen-entry" @click="openBigScreen">
+            <svg-icon icon-class="monitor" />
+          </div>
+        </el-tooltip>
+
         <el-tooltip content="主题模式" effect="dark" placement="bottom">
           <div class="right-menu-item hover-effect theme-switch-wrapper" @click="toggleTheme">
             <svg-icon v-if="settingsStore.isDark" icon-class="sunny" />
@@ -130,6 +136,11 @@ function lockScreen() {
   const currentPath = route.fullPath
   lockStore.lockScreen(currentPath)
   router.push('/lock')
+}
+
+/** 进入监控大屏（侧边栏菜单路由，当前窗口打开） */
+function openBigScreen() {
+  router.push('/screen/bigScreen')
 }
 
 async function toggleTheme(event) {
@@ -260,6 +271,20 @@ async function toggleTheme(event) {
         svg {
           transition: transform 0.3s;
           
+          &:hover {
+            transform: scale(1.15);
+          }
+        }
+      }
+
+      &.bigscreen-entry {
+        display: flex;
+        align-items: center;
+        color: var(--el-color-primary);
+
+        svg {
+          transition: transform 0.3s;
+
           &:hover {
             transform: scale(1.15);
           }

@@ -21,6 +21,10 @@ selenium-debug.log
 
 # 本地环境变量（勿提交）
 .env.*.local
+.omo/
+bin/
+.github/
+.codegraph/
 
 package-lock.json
 yarn.lock

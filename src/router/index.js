@@ -91,10 +91,18 @@ export const constantRoutes = [
     ]
   },
   {
-    path: '/screen/bigScreen',
-    component: () => import('@/views/screen/bigScreen'),
-    hidden: true,
-    meta: { title: '赛道监控指挥中心' }
+    path: '/screen',
+    component: Layout,
+    redirect: '/screen/bigScreen',
+    meta: { title: '赛事监控', icon: 'monitor' },
+    children: [
+      {
+        path: 'bigScreen',
+        component: () => import('@/views/screen/bigScreen'),
+        name: 'BigScreen',
+        meta: { title: '赛道监控大屏', icon: 'monitor' }
+      }
+    ]
   }
 ]
 
