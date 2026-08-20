@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { ElNotification , ElMessageBox, ElMessage, ElLoading } from 'element-plus'
-import { getToken } from '@/utils/auth'
+import { getToken, setToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
 import { tansParams, blobValidate } from '@/utils/ruoyi'
 import cache from '@/plugins/cache'
@@ -74,6 +74,12 @@ service.interceptors.request.use(config => {
 
 // 响应拦截器
 service.interceptors.response.use(res => {
+    // token滑动续期：后端在剩余有效期不足20分钟时重新签发token（响应头 New-Token），
+    // 这里静默替换本地token，用户持续操作不再每30分钟掉线重登
+    const newToken = res.headers['new-token']
+    if (newToken) {
+      setToken(newToken)
+    }
     // 未设置状态码则默认成功状态
     const code = res.data.code || 200
     // 获取错误信息

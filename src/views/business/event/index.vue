@@ -43,6 +43,11 @@
           <span>{{ scope.row.registered }}/{{ scope.row.totalQuota }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="报名费用" align="center" prop="fee" width="110">
+        <template #default="scope">
+          <span>{{ scope.row.fee === 0 || scope.row.fee === null || scope.row.fee === undefined ? '免费' : '¥' + scope.row.fee }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="报名开关" align="center" prop="signupOpen" width="100">
         <template #default="scope">
           <el-switch v-model="scope.row.signupOpen" :active-value="1" :inactive-value="0" @change="handleSignupOpen(scope.row)" v-hasPermi="['business:event:edit']" />
@@ -82,6 +87,9 @@
         </el-form-item>
         <el-form-item label="总名额" prop="totalQuota">
           <el-input-number v-model="form.totalQuota" :min="0" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="报名费用" prop="fee">
+          <el-input-number v-model="form.fee" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单位：元，0 表示免费" />
         </el-form-item>
         <el-form-item label="状态" prop="status">
           <el-select v-model="form.status" placeholder="请选择状态">
@@ -211,7 +219,7 @@ function submitForm() {
 
 function handleSignupOpen(row) { updateEventStatus(row.id, row.status).then(() => { proxy.$modal.msgSuccess('操作成功') }) }
 function cancel() { open.value = false; reset() }
-function reset() { form.value = { id: null, name: null, location: null, startTime: null, signupStart: null, signupEnd: null, totalQuota: 0, registered: 0, signupOpen: 1, status: 0, coverUrl: null, intro: null }; proxy.$refs.eventRef?.resetFields() }
+function reset() { form.value = { id: null, name: null, location: null, startTime: null, signupStart: null, signupEnd: null, totalQuota: 0, registered: 0, signupOpen: 1, status: 0, fee: 0, coverUrl: null, intro: null }; proxy.$refs.eventRef?.resetFields() }
 
 getList()
 </script>

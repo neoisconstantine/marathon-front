@@ -21,6 +21,9 @@
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
         <el-button icon="Refresh" @click="resetQuery">重置</el-button>
       </el-form-item>
+      <el-form-item>
+        <el-button type="warning" plain icon="Download" @click="handleExport" v-hasPermi="['business:result:export']">导出</el-button>
+      </el-form-item>
     </el-form>
 
     <el-table v-loading="loading" :data="resultList">
@@ -69,9 +72,11 @@
 </template>
 
 <script setup name="Result" lang="ts">
-import { listResult, getResult } from '@/api/business/result'
+import { listResult, getResult, exportResult } from '@/api/business/result'
 import { listEvent } from '@/api/business/event'
-import { reactive, ref, toRefs } from 'vue'
+import { getCurrentInstance, reactive, ref, toRefs } from 'vue'
+
+const { proxy } = getCurrentInstance()
 
 const result_status = [
   { label: '未完赛', value: 0 },
@@ -105,6 +110,15 @@ function getList() {
 
 function handleQuery() { queryParams.value.pageNum = 1; getList() }
 function resetQuery() { queryParams.value = { pageNum: 1, pageSize: 10, eventId: null, personName: null, bib: null, status: null }; handleQuery() }
+
+// 导出当前查询条件下的成绩 Excel
+function handleExport() {
+  proxy.$modal.confirm('是否确认导出当前查询条件下的成绩数据？').then(() => {
+    return exportResult(queryParams.value)
+  }).then(() => {
+    proxy.$modal.msgSuccess('导出成功')
+  }).catch(() => {})
+}
 
 function handleDetail(row) {
   getResult(row.id).then(response => {
