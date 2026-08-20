@@ -125,10 +125,60 @@ const open = ref(false)
 const data = reactive({
   form: {},
   queryParams: { pageNum: 1, pageSize: 10, name: null, status: null },
-  rules: { name: [{ required: true, message: '赛事名称不能为空', trigger: 'blur' }] }
+  rules: {
+    name: [{ required: true, message: '赛事名称不能为空', trigger: 'blur' }],
+    startTime: [
+      { required: true, message: '请选择开赛时间', trigger: 'change' },
+      { validator: validateEventTime, trigger: 'change' }
+    ],
+    signupStart: [
+      { required: true, message: '请选择报名开始时间', trigger: 'change' },
+      { validator: validateEventTime, trigger: 'change' }
+    ],
+    signupEnd: [
+      { required: true, message: '请选择报名截止时间', trigger: 'change' },
+      { validator: validateEventTime, trigger: 'change' }
+    ]
+  }
 })
 
 const { queryParams, form, rules } = toRefs(data)
+
+/**
+ * 赛事时间校验（业务规则）：
+ * 1. 报名开始时间必须晚于当前时间（赛事尚未开放报名时录入）
+ * 2. 报名开始时间必须早于报名截止时间（signupStart < signupEnd）
+ * 3. 开赛时间必须晚于报名截止时间（startTime > signupEnd）
+ */
+function validateEventTime(rule, value, callback) {
+  if (!value) {
+    callback(new Error('请选择时间'))
+    return
+  }
+  const f = data.form
+  const v = new Date(value).getTime()
+  if (rule.field === 'signupStart') {
+    if (v <= Date.now()) {
+      callback(new Error('报名开始时间必须晚于当前时间'))
+      return
+    }
+    if (f.signupEnd && v >= new Date(f.signupEnd).getTime()) {
+      callback(new Error('报名开始时间必须早于报名截止时间'))
+      return
+    }
+  } else if (rule.field === 'signupEnd') {
+    if (f.signupStart && v <= new Date(f.signupStart).getTime()) {
+      callback(new Error('报名截止时间必须晚于报名开始时间'))
+      return
+    }
+  } else if (rule.field === 'startTime') {
+    if (f.signupEnd && v <= new Date(f.signupEnd).getTime()) {
+      callback(new Error('开赛时间必须晚于报名截止时间'))
+      return
+    }
+  }
+  callback()
+}
 
 function statusTag(s) { return ['', 'primary', 'success', 'info'][s] || 'info' }
 function statusLabel(s) { return ['未发布', '报名中', '进行中', '已结束'][s] || '未知' }

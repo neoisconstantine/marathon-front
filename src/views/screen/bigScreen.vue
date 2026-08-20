@@ -41,15 +41,24 @@
                   </div>
                   <div class="ov-item">
                     <span class="ov-label">参赛人数</span>
-                    <dv-digital-flop :config="{ number: [overview.participantCount || 0], textAlign: 'right' }" class="ov-num" />
+                    <span class="ov-value">
+                      <dv-digital-flop :config="{ number: [overview.participantCount || 0], textAlign: 'right' }" class="ov-num" />
+                      <span class="ov-unit">人</span>
+                    </span>
                   </div>
                   <div class="ov-item">
                     <span class="ov-label">完赛人数</span>
-                    <dv-digital-flop :config="{ number: [overview.finishCount || 0], textAlign: 'right' }" class="ov-num" />
+                    <span class="ov-value">
+                      <dv-digital-flop :config="{ number: [overview.finishCount || 0], textAlign: 'right' }" class="ov-num" />
+                      <span class="ov-unit">人</span>
+                    </span>
                   </div>
                   <div class="ov-item">
                     <span class="ov-label">在途人数</span>
-                    <dv-digital-flop :config="{ number: [overview.onlineCount || 0], textAlign: 'right' }" class="ov-num" />
+                    <span class="ov-value">
+                      <dv-digital-flop :config="{ number: [overview.onlineCount || 0], textAlign: 'right' }" class="ov-num" />
+                      <span class="ov-unit">人</span>
+                    </span>
                   </div>
                   <div class="ov-item">
                     <span class="ov-label">完赛率</span>
@@ -313,11 +322,13 @@ function initHeatmapMap() {
   ).addTo(heatmapMap)
 }
 
-/** 摄像头节点颜色：按 heat(0~1) 在 绿→黄→红 之间线性渐变；无人员经过(count=0)显示蓝色 */
+/** 摄像头节点颜色：按 heat(0~1) 在 蓝→青→黄→橙→红 之间线性渐变（与热力层配色一致）；无人员经过(count=0)显示蓝色 */
 function heatColor(heat) {
   const stops = [
-    [0.0, [16, 226, 139]],   // #10e28b 绿（人数少）
-    [0.5, [255, 210, 31]],   // #ffd21f 黄
+    [0.0, [43, 111, 255]],   // #2b6fff 蓝（人数少）
+    [0.35, [49, 210, 255]],  // #31d2ff 青
+    [0.6, [255, 210, 31]],   // #ffd21f 黄
+    [0.8, [255, 138, 77]],   // #ff8a4d 橙
     [1.0, [255, 77, 79]]     // #ff4d4f 红（人数多）
   ]
   const h = Math.max(0, Math.min(1, heat || 0))
@@ -330,15 +341,46 @@ function heatColor(heat) {
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`
 }
 
+/** Catmull-Rom 样条平滑：将稀疏赛道折线插值为密集采样点，视觉上呈平滑曲线。
+ *  点较密时减少每段插值数，避免多余渲染开销 */
+function smoothRoute(points) {
+  if (!points || points.length < 3) return points || []
+  const samples = points.length > 100 ? 2 : 8
+  const out = []
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[Math.min(points.length - 1, i + 2)]
+    for (let s = 0; s < samples; s++) {
+      out.push(catmullRom(p0, p1, p2, p3, s / samples))
+    }
+  }
+  out.push(points[points.length - 1])
+  return out
+}
+
+/** Catmull-Rom 样条单点插值，返回 [lat, lng] */
+function catmullRom(p0, p1, p2, p3, t) {
+  const t2 = t * t
+  const t3 = t2 * t
+  return [
+    0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+    0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
+  ]
+}
+
 /** 渲染赛道线 + 热力 + 点位到 Leaflet（每次数据更新重建图层） */
 function renderHeatmap(data) {
   initHeatmapMap()
   if (!heatmapMap) return
   // WGS-84 → GCJ-02：camera GPS 需转换才能与高德瓦片对齐
-  const route = (data.route || []).map(p => {
+  const rawRoute = (data.route || []).map(p => {
     const [lng, lat] = wgs84ToGcj02(p[0], p[1])
     return [lat, lng] // Leaflet 使用 [lat, lng]
   })
+  // 赛道线平滑：Catmull-Rom 样条插值（点稀疏时折线显生硬，插值后呈平滑曲线）
+  const route = smoothRoute(rawRoute)
   const all = (data.points || []).map(p => {
     const [lng, lat] = wgs84ToGcj02(p.lng, p.lat)
     return { ...p, lat, lng }
@@ -350,27 +392,40 @@ function renderHeatmap(data) {
   if (heatLayer) { heatmapMap.removeLayer(heatLayer); heatLayer = null }
   if (pointLayer) { heatmapMap.removeLayer(pointLayer); pointLayer = null }
 
-  // 赛道线
+  // 赛道线：双层叠加实现发光效果（底层宽光晕 + 上层亮主线）
   if (route.length > 1) {
-    routeLayer = L.polyline(route, {
-      color: '#35c4ff',
-      weight: 3,
-      opacity: 0.9
-    }).addTo(heatmapMap)
+    routeLayer = L.layerGroup([
+      L.polyline(route, {
+        color: '#35c4ff',
+        weight: 8,
+        opacity: 0.22
+      }),
+      L.polyline(route, {
+        color: '#6ee7ff',
+        weight: 2.5,
+        opacity: 0.95
+      })
+    ]).addTo(heatmapMap)
   }
 
-  // 热力层（leaflet.heat: [[lat, lng, intensity], ...]）
+  // 热力层（leaflet.heat: [[lat, lng, intensity], ...]）——蓝青黄橙红科技感渐变，光晕更大更柔和
   if (active.length) {
     heatLayer = L.heatLayer(active.map(p => [p.lat, p.lng, p.heat]), {
-      radius: 30,
-      blur: 20,
+      radius: 38,
+      blur: 24,
       maxZoom: 17,
-      minOpacity: 0.4,
-      gradient: { 0.2: '#10e28b', 0.5: '#ffd21f', 0.9: '#ff4d4f' }
+      minOpacity: 0.35,
+      gradient: {
+        0.0: '#2b6fff',   // 蓝（人数少）
+        0.35: '#31d2ff',  // 青
+        0.6: '#ffd21f',   // 黄
+        0.8: '#ff8a4d',   // 橙
+        1.0: '#ff4d4f'    // 红（人数多）
+      }
     }).addTo(heatmapMap)
   }
 
-  // 摄像头点位（circleMarker + 悬浮提示）——颜色深浅按当前节点人数(heat)渐变
+  // 摄像头点位（circleMarker + 悬浮提示）——颜色深浅按当前节点人数(heat)渐变，活跃节点带呼吸动画
   pointLayer = L.layerGroup(all.map(p => {
     const active = (p.count || 0) > 0
     const color = active ? heatColor(p.heat) : '#35c4ff'
@@ -379,7 +434,8 @@ function renderHeatmap(data) {
       color: '#ffffff',
       weight: 1.5,
       fillColor: color,
-      fillOpacity: active ? 0.55 + (p.heat || 0) * 0.45 : 0.85
+      fillOpacity: active ? 0.55 + (p.heat || 0) * 0.45 : 0.85,
+      className: active ? 'hm-point hm-active' : 'hm-point'
     })
     m.bindTooltip(buildPointTooltip(p), {
       direction: 'top',
@@ -879,6 +935,13 @@ onUnmounted(() => {
   height: 32px;
 }
 
+/* 数字 + 单位同行容器（对齐 dv-digital-flop 数字底部） */
+.ov-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* 总里程（数字略小于人数统计，单位小字） */
 .ov-km {
   font-size: 24px;
@@ -919,7 +982,7 @@ onUnmounted(() => {
   min-height: 0;
   position: relative;
   z-index: 0;
-  background: rgba(4, 14, 38, 0.6);
+  background: rgba(2, 10, 30, 0.72);
 }
 
 /* Leaflet 缩放控件（深色主题） */
@@ -951,6 +1014,27 @@ onUnmounted(() => {
 .map-chart :deep(.leaflet-tooltip-top.hm-tooltip::before) {
   border-top-color: rgba(64, 158, 255, 0.5);
 }
+
+/* 摄像头节点：活跃节点（有人经过）呼吸脉动，突出实时人流热点 */
+.map-chart :deep(.hm-point) {
+  transition: fill 0.6s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.map-chart :deep(.hm-point.hm-active) {
+  animation: hmPulse 2.4s ease-in-out infinite;
+}
+@keyframes hmPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.3);
+  }
+}
+
 .hm-tip-name {
   color: #6ee7ff;
   font-weight: 600;
