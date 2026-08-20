@@ -25,6 +25,7 @@ selenium-debug.log
 bin/
 .github/
 .codegraph/
+html/ie.html
 
 package-lock.json
 yarn.lock
