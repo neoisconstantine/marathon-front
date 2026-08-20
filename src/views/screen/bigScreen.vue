@@ -186,7 +186,8 @@ async function loadRunningEvents() {
       eventId: e.id,
       eventName: e.name,
       status: e.status,
-      registered: e.registrationCount ?? 0
+      registered: e.registrationCount ?? 0,
+      mileage: e.mileage ?? null
     }))
     // 保持当前选中赛事；若原选中不在进行中列表里，则切到第一场
     if (!eventList.value.some(e => e.eventId === prevId)) {
@@ -530,10 +531,14 @@ const finishRateText = computed(() => {
 
 /**
  * 赛事总里程（km）：
- * 优先从摄像头点位编码解析（CP-05KM → 5、CP-HALF → 21.0975 等，取最大值）；
- * 解析不到时兜底用赛道 GPS 折线距离（haversine）估算。
+ * 优先使用后端 Event.mileage 字段（数据库中配置的真实赛道里程）；
+ * 为空时回退解析摄像头点位编码（CP-05KM → 5、CP-HALF → 21.0975 等，取最大值）；
+ * 再兜底用赛道 GPS 折线距离（haversine）估算。
  */
 const totalKm = computed(() => {
+  const ev = currentEvent.value
+  const dbKm = Number(ev.mileage)
+  if (dbKm > 0) return Math.round(dbKm * 1000) / 1000
   const points = heatmap.value.points || []
   let maxKm = 0
   for (const p of points) {
